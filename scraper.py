@@ -17,7 +17,6 @@ def normalize_url(url: str) -> str:
     netloc = parsed.netloc.lower().replace("www.", "")
     path = parsed.path.rstrip("/")
 
-    # Usuwamy typowe parametry śledzące
     tracking_params = {
         "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
         "fbclid", "gclid", "msclkid"
@@ -42,55 +41,49 @@ def load_existing_urls(csv_file: str) -> set:
     with open(csv_file, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            url = row.get("normalized_url")
-            if not url and row.get("url"):
-                url = normalize_url(row["url"])
+            url = row.get("url")
             if url:
-                existing.add(url)
+                existing.add(normalize_url(url))
 
     return existing
 
 
 def scrape_links(keyword: str, max_results: int = 50) -> list:
-    rows = []
+    urls = []
 
     with DDGS() as ddgs:
         results = ddgs.text(keyword, max_results=max_results)
 
-        for i, result in enumerate(results, start=1):
+        for result in results:
             url = result.get("href") or result.get("url")
             if not url:
                 continue
+            urls.append(url)
 
-            rows.append({
-                "keyword": keyword,
-                "position_for_keyword": i,
-                "url": url,
-                "normalized_url": normalize_url(url),
-            })
-
-    return rows
+    return urls
 
 
 def append_unique_links(keyword: str, max_results: int = 50, output_file: str = "linki.csv"):
     existing_urls = load_existing_urls(output_file)
-    scraped_rows = scrape_links(keyword, max_results=max_results)
+    scraped_urls = scrape_links(keyword, max_results=max_results)
 
     new_rows = []
     skipped = 0
 
-    for row in scraped_rows:
-        if row["normalized_url"] in existing_urls:
+    for url in scraped_urls:
+        normalized = normalize_url(url)
+
+        if normalized in existing_urls:
             skipped += 1
             continue
 
-        new_rows.append(row)
-        existing_urls.add(row["normalized_url"])
+        new_rows.append({"url": url})
+        existing_urls.add(normalized)
 
     file_exists = os.path.exists(output_file)
 
     with open(output_file, "a", encoding="utf-8-sig", newline="") as f:
-        fieldnames = ["keyword", "position_for_keyword", "url", "normalized_url"]
+        fieldnames = ["url"]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
 
         if not file_exists:
@@ -99,7 +92,7 @@ def append_unique_links(keyword: str, max_results: int = 50, output_file: str = 
         writer.writerows(new_rows)
 
     print(f"Keyword: {keyword}")
-    print(f"Znaleziono: {len(scraped_rows)}")
+    print(f"Znaleziono: {len(scraped_urls)}")
     print(f"Dodano nowych: {len(new_rows)}")
     print(f"Pominięto duplikatów: {skipped}")
     print(f"Plik: {output_file}")
